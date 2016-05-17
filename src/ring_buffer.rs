@@ -33,7 +33,24 @@ impl RingBuffer {
     }
 
     fn read_buf(&mut self, target: &mut [u8], amount: usize) -> Result<usize, RingBufferError> {
-        unimplemented!();
+        if amount > self.available_data() {
+            let available = self.available_data();
+            return Err(RingBufferError::NotEnoughData(available, amount, ""));
+        }
+
+        for i in 0..amount {
+            target[i] = self.buffer[(self.start + i) % self.capacity];
+        }
+
+        self.commit_read(amount);
+
+        if self.end == self.start {
+            // Reset buffer
+            self.start = 0;
+            self.end = 0;
+        }
+
+        Ok(amount)
     }
 
     fn write_buf(&mut self, data: &[u8], amount: usize) -> Result<usize, RingBufferError> {
