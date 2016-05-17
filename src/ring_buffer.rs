@@ -1,4 +1,5 @@
 use std::io;
+use std::io::{Read, Write};
 
 
 pub enum RingBufferError<'a> {
@@ -32,7 +33,7 @@ impl RingBuffer {
         }
     }
 
-    fn read_buf(&mut self, target: &mut [u8], amount: usize) -> Result<usize, RingBufferError> {
+    fn read_buf_amount(&mut self, target: &mut [u8], amount: usize) -> Result<usize, RingBufferError> {
         if amount > self.available_data() {
             let available = self.available_data();
             return Err(RingBufferError::NotEnoughData(available, amount, ""));
@@ -53,7 +54,7 @@ impl RingBuffer {
         Ok(amount)
     }
 
-    fn write_buf(&mut self, data: &[u8], amount: usize) -> Result<usize, RingBufferError> {
+    fn write_buf_amount(&mut self, data: &[u8], amount: usize) -> Result<usize, RingBufferError> {
         if self.available_data() == 0 {
             // Reset buffer
             self.start = 0;
@@ -113,7 +114,7 @@ impl RingBuffer {
     }
 
     fn puts(&mut self, data: &[u8]) -> Result<usize, RingBufferError> {
-        self.write_buf(data, data.len())
+        self.write_buf_amount(data, data.len())
     }
 
     #[inline]
@@ -125,5 +126,22 @@ impl RingBuffer {
     fn commit_write(&mut self, amount: usize) {
         self.end = (self.end + amount) % self.capacity
     }
+}
 
+impl Read for RingBuffer {
+    fn read(&mut self, but: &mut [u8]) -> io::Result<usize> {
+        unimplemented!();
+    }
+
+
+}
+
+impl Write for RingBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unimplemented!();
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        unimplemented!();
+    }
 }
