@@ -1,6 +1,6 @@
 [package]
 name = "ring-buffer"
 version = "0.1.0"
-authors = ["Stallmanifold <stallmanifold@gmail.com>"]
+authors = ["LambdaXymox <lambda.xymox@gmail.com>"]
 
 [dependencies]
