@@ -1,7 +1,5 @@
-extern crate ring_buffer;
-
 use ring_buffer::RingBuffer;
-use std::fmt::Write;
+use core::fmt::Write;
 
 
 /// GIVEN: An ring buffer.
