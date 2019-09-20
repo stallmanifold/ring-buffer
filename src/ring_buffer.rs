@@ -1,147 +1,159 @@
-use std::io;
-use std::io::{Read, Write};
+use core::fmt;
+use core::str;
 
 
-pub enum RingBufferError<'a> {
-    NotEnoughSpace(usize, usize, &'a str),
-    NotEnoughData(usize, usize, &'a str),
-    WriteFailure,
-    ReadFailure,
+/// A `RingBuffer` is a ring buffer for storing UTF-8 strings for text display.
+/// It stores data using zero allocations.
+#[derive(Debug)]
+pub struct RingBuffer<Storage> {
+    /// The underlying storage for the ring buffer.
+    storage: Storage,
+    /// Whether the ring buffer has wrapped around since its last call to rotate.
+    wrapped: bool,
+    /// The position of the next available byte in the ring buffer.
+    end: usize,
 }
 
+impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
+    /// Construct a new log buffer.
+    pub fn new(storage: Storage) -> RingBuffer<Storage> {
+        let mut ring_buffer = RingBuffer {
+            storage: storage,
+            wrapped: false,
+            end: 0,
+        };
 
-pub struct RingBuffer {
-    buffer: Box<Vec<u8>>,
-    capacity: usize,
-    start:  usize,
-    end:    usize,    
-}
+        ring_buffer.clear();
+        ring_buffer
+    }
 
-impl RingBuffer {
-    fn new(capacity: usize) -> RingBuffer {
-        let mut buffer = Box::new(Vec::with_capacity(capacity));
-        // Initialize vector.
-        for i in 0..buffer.capacity() {
-            buffer.push(0);
-        }
-
-        RingBuffer {
-            buffer: buffer,
-            capacity: capacity,
-            start: 0,
-            end: capacity-1,
+    /// Empty out the ring buffer.
+    pub fn clear(&mut self) {
+        self.wrapped = false;
+        self.end = 0;
+        for byte in self.storage.as_mut().iter_mut() {
+            *byte = 0x00;
         }
     }
 
-    fn read_buf_amount(&mut self, target: &mut [u8], amount: usize) -> Result<usize, RingBufferError> {
-        if amount > self.available_data() {
-            let available = self.available_data();
-            return Err(RingBufferError::NotEnoughData(available, amount, ""));
+    /// Determine whether the ring buffer is empty, i.e. it contains no data.
+    pub fn is_empty(&self) -> bool {
+        (self.end == 0) && !self.wrapped
+    }
+
+    /// Determine the number of bytes currently stored in the ring buffer.
+    pub fn len(&self) -> usize {
+        if self.wrapped {
+            self.storage.as_ref().len()
+        } else {
+            self.end
+        }
+    }
+
+    /// Calculate the amount of space in bytes remaining in the ring buffer.
+    pub fn space_remaining(&self) -> usize {
+        self.capacity() - self.len()
+    }
+
+    /// Determine whether the ring buffer is full.
+    pub fn is_full(&self) -> bool {
+        self.space_remaining() == 0
+    }
+
+    /// The maximum number of bytes that a ring buffer can store. This is not
+    /// the same as the number of UTF-8 characters the buffer can store since
+    /// UTF-8 characters can have multiple code points.
+    pub fn capacity(&self) -> usize {
+        self.storage.as_ref().len()
+    }
+
+    fn rotate(&mut self) {
+        if self.wrapped {
+            self.storage.as_mut().rotate_left(self.end);
+            self.end = self.len();
+            self.wrapped = false;
+        }
+    }
+
+    /// Extract a string slice from the ring buffer. This is a zero allocation operation.
+    pub fn extract(&mut self) -> &str {
+        fn is_utf8_leader(byte: u8) -> bool {
+            byte & 0b10000000 == 0b00000000 || byte & 0b11100000 == 0b11000000 ||
+            byte & 0b11110000 == 0b11100000 || byte & 0b11111000 == 0b11110000
         }
 
-        for i in 0..amount {
-            target[i] = self.buffer[(self.start + i) % self.capacity];
+        self.rotate();
+
+        let buffer = self.storage.as_mut();
+        let end = self.end;
+        for i in 0..end {
+            if is_utf8_leader(buffer[i]) {
+                return str::from_utf8(&buffer[i..end]).unwrap();
+            }
         }
 
-        self.commit_read(amount);
-
-        if self.end == self.start {
-            // Reset buffer
-            self.start = 0;
-            self.end = 0;
-        }
-
-        Ok(amount)
-    }
-
-    fn write_buf_amount(&mut self, data: &[u8], amount: usize) -> Result<usize, RingBufferError> {
-        if self.available_data() == 0 {
-            // Reset buffer
-            self.start = 0;
-            self.end = 0;
-        }
-
-        if amount > self.available_space() {
-            let space = self.available_space();
-
-            return Err(RingBufferError::NotEnoughSpace(space, amount, ""));
-        }
-
-        for i in 1..amount+1 {
-            self.buffer[(self.end + i) % self.capacity] = data[i];
-        }
-
-        self.commit_write(amount);
-
-        Ok(amount)
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.available_data() == 0
-    }
-
-    #[inline]
-    fn is_full(&self) -> bool {
-        self.available_data() == self.capacity
-    }
-
-    #[inline]
-    fn available_data(&self) -> usize {
-        (self.end + 1) % self.capacity - self.start - 1
-    }
-
-    #[inline]
-    fn available_space(&self) -> usize {
-        self.capacity - self.end - 1
-    }
-
-    fn gets(&mut self, amount: usize) -> Result<Box<[u8]>, RingBufferError> {
-        if amount > self.available_data() {
-            return Err(RingBufferError::NotEnoughData(amount, self.available_data(), ""));
-        }
-
-        let mut result = Vec::new();
-        for i in 0..amount {
-            result.push(self.buffer[(self.start + i) % self.capacity]);
-        }
-        assert!(result.len() == amount);
-
-        self.commit_read(amount);
-        assert!(self.available_data() >= 0, "Error in read commit.");
-
-        Ok(result.into_boxed_slice())
-    }
-
-    fn puts(&mut self, data: &[u8]) -> Result<usize, RingBufferError> {
-        self.write_buf_amount(data, data.len())
-    }
-
-    #[inline]
-    fn commit_read(&mut self, amount: usize) {
-        self.start = (self.start + amount) % self.capacity
-    }
-
-    #[inline]
-    fn commit_write(&mut self, amount: usize) {
-        self.end = (self.end + amount) % self.capacity
+        ""
     }
 }
 
-impl Read for RingBuffer {
-    fn read(&mut self, but: &mut [u8]) -> io::Result<usize> {
-        unimplemented!();
-    }
+impl<Storage> fmt::Write for RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
+    /// Write a UTF-8 string into the ring buffer.
+    fn write_str(&mut self, st: &str) -> fmt::Result {
+        for &byte in st.as_bytes() {
+            self.storage.as_mut()[self.end] = byte;
+            self.end += 1;
+            if self.end >= self.storage.as_ref().len() {
+                self.wrapped = true;
+            }
+            self.end %= self.storage.as_mut().len();
+        }
 
-
-}
-
-impl Write for RingBuffer {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unimplemented!();
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        unimplemented!();
+        Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod rotate_tests {
+    use super::RingBuffer;
+    use core::fmt::Write;
+
+
+    #[test]
+    fn ring_buffer_successive_rotate_operations_should_leave_internal_state_unchanged() {
+        let mut ring_buffer = RingBuffer::new([0xFF; 16]);
+        write!(ring_buffer, "abcdefgh").unwrap();
+
+        ring_buffer.rotate();
+        let wrapped = ring_buffer.wrapped;
+        let end = ring_buffer.end;
+        let storage = ring_buffer.storage;
+        ring_buffer.rotate();
+        ring_buffer.rotate();
+
+        assert_eq!(ring_buffer.wrapped, wrapped);
+        assert_eq!(ring_buffer.end, end);
+        assert_eq!(ring_buffer.storage, storage);
+    }
+
+    #[test]
+    fn ring_buffer_rotate_should_unwrap_buffer() {
+        let mut ring_buffer = RingBuffer::new([0xFF; 16]);
+        write!(ring_buffer, "abcdefghijklmnop").unwrap();
+
+        assert_eq!(ring_buffer.wrapped, true);
+        ring_buffer.rotate();
+        assert_eq!(ring_buffer.wrapped, false);
+    }
+
+    #[test]
+    fn ring_buffer_rotate_should_unwrap_end() {
+        let mut ring_buffer = RingBuffer::new([0xFF; 16]);
+        write!(ring_buffer, "abcdefghijklmnop").unwrap();
+
+        let end_before_rotate = ring_buffer.end;
+        ring_buffer.rotate();
+        assert!(ring_buffer.end > end_before_rotate);
+    }
+}
+
