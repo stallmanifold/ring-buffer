@@ -1,5 +1,7 @@
 #![no_std]
-pub mod ring_buffer;
+mod ring_buffer;
+
+pub use ring_buffer::*;
 
 #[cfg(test)]
 mod tests;
