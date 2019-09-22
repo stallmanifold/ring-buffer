@@ -1,27 +1,68 @@
-#![no_std]
-use core::fmt;
-use core::str;
+use std::fmt;
+use std::default::Default;
+use std::marker::PhantomData;
+use std::vec::Vec;
 
 
-/// A `RingBuffer` is a ring buffer for storing UTF-8 strings for text display.
-/// It stores data using zero allocations.
+pub trait BufferStorage<T>: AsRef<[T]> + AsMut<[T]> where T: Sized {}
+
+impl<T> BufferStorage<T> for [T; 1] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 2] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 3] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 4] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 5] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 6] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 7] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 8] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 9] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 10] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 11] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 12] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 13] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 14] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 15] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 16] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 17] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 18] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 19] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 20] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 21] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 22] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 23] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 24] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 25] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 26] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 27] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 28] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 29] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 30] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 31] where T: Sized + Default {}
+impl<T> BufferStorage<T> for [T; 32] where T: Sized + Default {}
+
+impl<T> BufferStorage<T> for Vec<T> where T: Sized + Default {}
+
+/// A `RingBuffer` is a ring buffer providing the illusion of storing an 
+/// unlimited stream of sized objects of a given type in a finite amount 
+/// of space. It stores data using zero allocations.
 #[derive(Debug)]
-pub struct RingBuffer<Storage> {
+pub struct RingBuffer<S, T> {
     /// The underlying storage for the ring buffer.
-    storage: Storage,
+    storage: S,
     /// Whether the ring buffer has wrapped around since its last call to rotate.
     wrapped: bool,
     /// The position of the next available byte in the ring buffer.
     end: usize,
+    _marker: PhantomData<T>,
 }
 
-impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
-    /// Construct a new log buffer.
-    pub fn new(storage: Storage) -> RingBuffer<Storage> {
+impl<S, T> RingBuffer<S, T> where S: BufferStorage<T>, T: Copy + Sized + Default {
+    /// Construct a new ring buffer.
+    pub fn new(storage: S) -> RingBuffer<S, T> {
         let mut ring_buffer = RingBuffer {
             storage: storage,
             wrapped: false,
             end: 0,
+            _marker: PhantomData
         };
 
         ring_buffer.clear();
@@ -32,8 +73,8 @@ impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
     pub fn clear(&mut self) {
         self.wrapped = false;
         self.end = 0;
-        for byte in self.storage.as_mut().iter_mut() {
-            *byte = 0x00;
+        for slot in self.storage.as_mut().iter_mut() {
+            *slot = T::default();
         }
     }
 
@@ -42,7 +83,7 @@ impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
         (self.end == 0) && !self.wrapped
     }
 
-    /// Determine the number of bytes currently stored in the ring buffer.
+    /// Determine the number of items currently stored in the ring buffer.
     pub fn len(&self) -> usize {
         if self.wrapped {
             self.storage.as_ref().len()
@@ -51,7 +92,7 @@ impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
         }
     }
 
-    /// Calculate the amount of space in bytes remaining in the ring buffer.
+    /// Calculate the amount of space in number of items remaining in the ring buffer.
     pub fn space_remaining(&self) -> usize {
         self.capacity() - self.len()
     }
@@ -61,9 +102,7 @@ impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
         self.space_remaining() == 0
     }
 
-    /// The maximum number of bytes that a ring buffer can store. This is not
-    /// the same as the number of UTF-8 characters the buffer can store since
-    /// UTF-8 characters can have multiple code points.
+    /// The maximum number of items that a ring buffer can store.
     pub fn capacity(&self) -> usize {
         self.storage.as_ref().len()
     }
@@ -76,28 +115,31 @@ impl<Storage> RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
         }
     }
 
-    /// Extract a string slice from the ring buffer. This is a zero allocation operation.
-    pub fn extract(&mut self) -> &str {
-        fn is_utf8_leader(byte: u8) -> bool {
-            byte & 0b10000000 == 0b00000000 || byte & 0b11100000 == 0b11000000 ||
-            byte & 0b11110000 == 0b11100000 || byte & 0b11111000 == 0b11110000
-        }
-
+    /// Extract a slice from the ring buffer. This is a zero allocation operation.
+    pub fn extract(&mut self) -> &[T] {
         self.rotate();
 
         let buffer = self.storage.as_mut();
         let end = self.end;
-        for i in 0..end {
-            if is_utf8_leader(buffer[i]) {
-                return str::from_utf8(&buffer[i..end]).unwrap();
+        &buffer[0..end]
+    }
+
+    /// Write a slice of objects into the ring buffer.
+    pub fn write(&mut self, slice: &[T]) -> Result<(), ()> {
+        for &item in slice.iter() {
+            self.storage.as_mut()[self.end] = item;
+            self.end += 1;
+            if self.end >= self.storage.as_ref().len() {
+                self.wrapped = true;
             }
+            self.end %= self.storage.as_mut().len();
         }
 
-        ""
+        Ok(())
     }
 }
 
-impl<Storage> fmt::Write for RingBuffer<Storage> where Storage: AsRef<[u8]> + AsMut<[u8]> {
+impl<S> fmt::Write for RingBuffer<S, u8> where S: BufferStorage<u8> {
     /// Write a UTF-8 string into the ring buffer.
     fn write_str(&mut self, st: &str) -> fmt::Result {
         for &byte in st.as_bytes() {

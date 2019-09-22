@@ -20,7 +20,7 @@ fn empty_ring_buffer_extract_should_be_empty_slice() {
     let mut ring_buffer = RingBuffer::new([0x00; 16]);
 
     let result = ring_buffer.extract();
-    let expected = "";
+    let expected = [];
 
     assert_eq!(result, expected);
 
@@ -55,7 +55,7 @@ fn ring_buffer_extracted_string_should_match_inserted_string_of_length_at_most_t
     let mut ring_buffer = RingBuffer::new([0x00; 16]);
     write!(ring_buffer, "abcdefghijklmnop").unwrap();
 
-    let result = ring_buffer.extract();
+    let result = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
     let expected = "abcdefghijklmnop";
 
     assert_eq!(result, expected);
@@ -103,7 +103,7 @@ fn ring_buffer_string_longer_than_buffer_length_should_wrap_around() {
     write!(ring_buffer, "abcdefghijklmnopqrstuv").unwrap();
 
     let expected = "ghijklmnopqrstuv";
-    let result = ring_buffer.extract();
+    let result = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
 
     assert_eq!(result, expected);
 }
@@ -120,7 +120,7 @@ fn ring_buffer_should_correctly_extract_data_after_multiple_cycles() {
     write!(ring_buffer, "abcdefghijklmnopqrstuv").unwrap();
 
     let expected = "ghijklmnopqrstuv";
-    let result = ring_buffer.extract();
+    let result = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
 
     assert_eq!(result, expected);
 }
@@ -134,7 +134,7 @@ fn ring_buffer_should_only_contain_the_last_buffer_length_number_of_bytes_put_in
     write!(ring_buffer, "abcdefghijklmnopqrstuvwxyz1234567890").unwrap();
 
     let expected = "uvwxyz1234567890";
-    let result = ring_buffer.extract();
+    let result = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
 
     assert_eq!(result, expected);
 }
@@ -160,7 +160,7 @@ fn ring_buffer_extract_after_clear_should_be_empty_string() {
     write!(ring_buffer, "abcdefghijklmnop").unwrap();
     ring_buffer.clear();
     let result = ring_buffer.extract();
-    let expected = "";
+    let expected = [];
 
     assert_eq!(result, expected);
 }
@@ -173,8 +173,8 @@ fn ring_buffer_extract_after_extract_should_yield_same_string() {
     let mut ring_buffer = RingBuffer::new([0x00; 16]);
     write!(ring_buffer, "abcdefghijklmn").unwrap();
 
-    let result = String::from(ring_buffer.extract());
-    let expected = String::from(ring_buffer.extract());
+    let result = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
+    let expected = String::from_utf8(ring_buffer.extract().to_vec()).unwrap();
 
     assert_eq!(result, expected);
 }
